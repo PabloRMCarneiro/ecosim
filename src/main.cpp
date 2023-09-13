@@ -4,6 +4,7 @@
 #include "crow_all.h"
 #include "json.hpp"
 #include <random>
+#include <iostream>
 
 static const uint32_t NUM_ROWS = 15;
 
@@ -11,7 +12,7 @@ static const uint32_t NUM_ROWS = 15;
 const uint32_t PLANT_MAXIMUM_AGE = 10;
 const uint32_t HERBIVORE_MAXIMUM_AGE = 50;
 const uint32_t CARNIVORE_MAXIMUM_AGE = 80;
-const uint32_t MAXIMUM_ENERGY = 200;
+const uint32_t MAXIMUM_ENERGY = 100;
 const uint32_t THRESHOLD_ENERGY_FOR_REPRODUCTION = 20;
 
 // Probabilities
@@ -65,6 +66,31 @@ namespace nlohmann
 // Grid that contains the entities
 static std::vector<std::vector<entity_t>> entity_grid;
 
+bool random_action(float probability)
+{
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+    return dis(gen) < probability;
+}
+
+uint32_t random_integer(const int min, const int max)
+{
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(min, max);
+    return dis(gen);
+}
+
+uint32_t random_position(const std::vector<int> positions)
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distribution(0, positions.size() - 1);
+    int randomIndex = distribution(gen);
+    return positions[randomIndex];
+}
+
 int main()
 {
     crow::SimpleApp app;
@@ -98,6 +124,50 @@ int main()
         
         // Create the entities
         // <YOUR CODE HERE>
+        // Create plants
+        for (int i = 0; i < (uint32_t)request_body["plants"]; i++){
+            uint32_t random_row = random_integer(0, NUM_ROWS - 1);
+            uint32_t random_col = random_integer(0, NUM_ROWS - 1);
+
+            if (entity_grid[random_row][random_col].type == empty){
+                entity_grid[random_row][random_col].type = plant;
+                entity_grid[random_row][random_col].energy = 0;
+                entity_grid[random_row][random_col].age = 0;
+            }
+            else{
+                i--;
+            }
+        }
+
+        // Create herbivores
+        for (int i = 0; i < (uint32_t)request_body["herbivores"]; i++){
+            uint32_t random_row = random_integer(0, NUM_ROWS - 1);
+            uint32_t random_col = random_integer(0, NUM_ROWS - 1);
+
+            if (entity_grid[random_row][random_col].type == empty){
+                entity_grid[random_row][random_col].type = herbivore;
+                entity_grid[random_row][random_col].energy = MAXIMUM_ENERGY;
+                entity_grid[random_row][random_col].age = 0;
+            }
+            else{
+                i--;
+            }
+        }
+
+        // Create carnivores
+        for (int i = 0; i < (uint32_t)request_body["carnivores"]; i++){
+            uint32_t random_row = random_integer(0, NUM_ROWS - 1);
+            uint32_t random_col = random_integer(0, NUM_ROWS - 1);
+
+            if (entity_grid[random_row][random_col].type == empty){
+                entity_grid[random_row][random_col].type = carnivore;
+                entity_grid[random_row][random_col].energy = MAXIMUM_ENERGY;
+                entity_grid[random_row][random_col].age = 0;
+            }
+            else{
+                i--;
+            }
+        }
 
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
@@ -110,11 +180,248 @@ int main()
                                {
         // Simulate the next iteration
         // Iterate over the entity grid and simulate the behaviour of each entity
-        
+
         // <YOUR CODE HERE>
+        // Iterate over the entity grid and simulate the behaviour of each entity
+        for (int i = 0; i < NUM_ROWS; i++)
+        {
+            for (int j = 0; j < NUM_ROWS; j++)
+            {
+
+                if (entity_grid[i][j].type == plant)
+                {
+
+                    entity_grid[i][j].age++;
+
+                    if (entity_grid[i][j].age > PLANT_MAXIMUM_AGE)
+                    {
+                        entity_grid[i][j].type = empty;
+                        entity_grid[i][j].energy = 0;
+                        entity_grid[i][j].age = 0;
+                    }
+                    else if (random_action(PLANT_REPRODUCTION_PROBABILITY))
+                    {
+                        std::vector<int> void_valid_positions;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == empty)
+                                {
+                                    void_valid_positions.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (void_valid_positions.size() != 0)
+                        {
+                            int random_position_void = random_position(void_valid_positions);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = plant;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = 0;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = 0;
+                        }
+                    }
+                }
+
+                if (entity_grid[i][j].type == herbivore)
+                {
+
+                    entity_grid[i][j].age++;
+
+                    if (entity_grid[i][j].age > HERBIVORE_MAXIMUM_AGE || entity_grid[i][j].energy <= 0)
+                    {
+                        entity_grid[i][j].type = empty;
+                        entity_grid[i][j].energy = 0;
+                        entity_grid[i][j].age = 0;
+                    }
+                    else if (random_action(HERBIVORE_EAT_PROBABILITY))
+                    {
+
+                        std::vector<int> plant_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == plant)
+                                {
+                                    plant_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (plant_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(plant_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = empty;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = 0;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = 0;
+
+                            entity_grid[i][j].energy = entity_grid[i][j].energy + 30;
+                        }
+                    }
+                    else if (random_action(HERBIVORE_MOVE_PROBABILITY))
+                    {
+
+                        std::vector<int> void_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == empty)
+                                {
+                                    void_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (void_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(void_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = herbivore;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = entity_grid[i][j].age;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = entity_grid[i][j].energy - 5;
+
+                            entity_grid[i][j].type = empty;
+                            entity_grid[i][j].age = 0;
+                            entity_grid[i][j].energy = 0;
+                        }
+                    }
+                    else if (random_action(HERBIVORE_REPRODUCTION_PROBABILITY) && entity_grid[i][j].energy > THRESHOLD_ENERGY_FOR_REPRODUCTION)
+                    {
+
+                        std::vector<int> void_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == empty)
+                                {
+                                    void_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (void_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(void_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = herbivore;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = 0;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = MAXIMUM_ENERGY;
+
+                            entity_grid[i][j].energy = entity_grid[i][j].energy - 10;
+                        }
+                    }
+                }
+
+                if (entity_grid[i][j].type == carnivore)
+                {
+
+                    entity_grid[i][j].age++;
+
+                    if (entity_grid[i][j].age > CARNIVORE_MAXIMUM_AGE || entity_grid[i][j].energy <= 0)
+                    {
+                        entity_grid[i][j].type = empty;
+                        entity_grid[i][j].energy = 0;
+                        entity_grid[i][j].age = 0;
+                    }
+                    else if (random_action(CARNIVORE_EAT_PROBABILITY))
+                    {
+
+                        std::vector<int> herbivore_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == herbivore)
+                                {
+                                    herbivore_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (herbivore_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(herbivore_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = empty;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = 0;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = 0;
+
+                            entity_grid[i][j].energy = entity_grid[i][j].energy + 20;
+                        }
+                    }
+                    else if (random_action(CARNIVORE_MOVE_PROBABILITY))
+                    {
+
+                        std::vector<int> void_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == empty)
+                                {
+                                    void_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (void_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(void_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = carnivore;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = entity_grid[i][j].age;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = entity_grid[i][j].energy - 5;
+
+                            entity_grid[i][j].type = empty;
+                            entity_grid[i][j].age = 0;
+                            entity_grid[i][j].energy = 0;
+                        }
+                    }
+                    else if (random_action(CARNIVORE_REPRODUCTION_PROBABILITY) && entity_grid[i][j].energy < THRESHOLD_ENERGY_FOR_REPRODUCTION)
+                    {
+
+                        std::vector<int> void_valid_postion;
+
+                        int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+                        for (int k = 0; k < 4; k++)
+                        {
+                            if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+                            {
+                                if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == empty)
+                                {
+                                    void_valid_postion.push_back(k);
+                                }
+                            }
+                        }
+
+                        if (void_valid_postion.size() != 0)
+                        {
+                            int random_position_void = random_position(void_valid_postion);
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].type = carnivore;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].age = 0;
+                            entity_grid[i + directions[random_position_void][0]][j + directions[random_position_void][1]].energy = MAXIMUM_ENERGY;
+
+                            entity_grid[i][j].energy = entity_grid[i][j].energy - 10;
+                        }
+                    }
+                }
+            }
+            // Return the JSON representation of the entity grid
+            
+        }
         
-        // Return the JSON representation of the entity grid
-        nlohmann::json json_grid = entity_grid; 
+        nlohmann::json json_grid = entity_grid;
         return json_grid.dump(); });
     app.port(8080).run();
 
