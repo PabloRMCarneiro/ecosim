@@ -24,30 +24,37 @@ const double CARNIVORE_EAT_PROBABILITY = 1.0;
 
 enum entity_type_t
 {
-  empty,
-  plant,
-  herbivore,
-  carnivore
+    empty,
+    plant,
+    herbivore,
+    carnivore
 };
 
 enum actions_type_t
 {
-  eat,
-  move,
-  reproduction
+    eat,
+    move,
+    reproduction
 };
 
 struct pos_t
 {
-  uint32_t i;
-  uint32_t j;
+    uint32_t i;
+    uint32_t j;
 };
 
 struct entity_t
 {
-  entity_type_t type;
-  int32_t energy;
-  int32_t age;
+    entity_type_t type;
+    int32_t energy;
+    int32_t age;
+    bool is_iterated;
+};
+
+struct valid_position
+{
+    std::vector<int> valid_positions;
+    bool is_empty;
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(entity_type_t, {
@@ -59,144 +66,159 @@ NLOHMANN_JSON_SERIALIZE_ENUM(entity_type_t, {
 
 namespace nlohmann
 {
-  void to_json(nlohmann::json &j, const entity_t &e)
-  {
-    j = nlohmann::json{{"type", e.type}, {"energy", e.energy}, {"age", e.age}};
-  }
+    void to_json(nlohmann::json &j, const entity_t &e)
+    {
+        j = nlohmann::json{{"type", e.type}, {"energy", e.energy}, {"age", e.age}};
+    }
 }
 
 static std::vector<std::vector<entity_t>> entity_grid;
-static int directions[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+static std::vector<std::vector<int>> directions = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
 
 bool random_action(float probability)
 {
-  static std::random_device rd;
-  static std::mt19937 gen(rd());
-  std::uniform_real_distribution<> dis(0.0, 1.0);
-  return dis(gen) < probability;
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+    return dis(gen) < probability;
 }
 
 uint32_t random_integer(const int min, const int max)
 {
-  static std::random_device rd;
-  static std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(min, max);
-  return dis(gen);
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(min, max);
+    return dis(gen);
 }
 
 uint32_t random_position(const std::vector<int> positions)
 {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<int> distribution(0, positions.size() - 1);
-  int randomIndex = distribution(gen);
-  return positions[randomIndex];
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distribution(0, positions.size() - 1);
+    int randomIndex = distribution(gen);
+    return positions[randomIndex];
 }
 
 void start_grid(const entity_type_t type, const int initial_quantity)
 {
-  for (int i = 0; i < initial_quantity; i++)
-  {
-    uint32_t random_row = random_integer(0, NUM_ROWS - 1);
-    uint32_t random_col = random_integer(0, NUM_ROWS - 1);
+    for (int i = 0; i < initial_quantity; i++)
+    {
+        uint32_t random_row = random_integer(0, NUM_ROWS - 1);
+        uint32_t random_col = random_integer(0, NUM_ROWS - 1);
 
-    if (entity_grid[random_row][random_col].type == empty)
-    {
-      entity_grid[random_row][random_col].type = type;
-      entity_grid[random_row][random_col].energy = MAXIMUM_ENERGY;
-      entity_grid[random_row][random_col].age = 0;
+        if (entity_grid[random_row][random_col].type == empty)
+        {
+            entity_grid[random_row][random_col].type = type;
+            entity_grid[random_row][random_col].energy = MAXIMUM_ENERGY;
+            entity_grid[random_row][random_col].age = 0;
+        }
+        else
+        {
+            i--;
+        }
     }
-    else
-    {
-      i--;
-    }
-  }
 };
 
 void clean_position(const int i, const int j)
 {
-  entity_grid[i][j].type = empty;
-  entity_grid[i][j].energy = 0;
-  entity_grid[i][j].age = 0;
+    entity_grid[i][j].type = empty;
+    entity_grid[i][j].energy = 0;
+    entity_grid[i][j].age = 0;
+    entity_grid[i][j].is_iterated = false;
 };
 
-std::vector<int> search_positions(const entity_type_t type, const int i, const int j)
+valid_position search_positions(const entity_type_t type, const int i, const int j)
 {
-  std::vector<int> valid_positions;
+    std::vector<int> valid_positions;
 
-  for (int k = 0; k < 4; k++)
-  {
-    if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+    for (int k = 0; k < directions.size(); k++)
     {
-      if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == type)
-      {
-        valid_positions.push_back(k);
-      }
+        if (i + directions[k][0] >= 0 && i + directions[k][0] < NUM_ROWS && j + directions[k][1] >= 0 && j + directions[k][1] < NUM_ROWS)
+        {
+            if (entity_grid[i + directions[k][0]][j + directions[k][1]].type == type)
+            {
+                valid_positions.push_back(k);
+            }
+        }
     }
-  }
 
-  return valid_positions;
+    return {valid_positions, valid_positions.size() == 0};
 }
 
 void next_positions(const std::vector<int> valid_positions, const entity_type_t type, const int i, const int j, const actions_type_t action)
 {
-  if (valid_positions.size() != 0)
-  {
-    if (action == eat)
+    if (valid_positions.size() != 0)
     {
-      int random_pos = random_position(valid_positions);
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = entity_grid[i][j].age;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = entity_grid[i][j].energy + (type == herbivore ? 30 : 20);
+        int random_pos = random_position(valid_positions);
+        
+        switch (action)
+        {
+        case eat:
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = entity_grid[i][j].age;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = entity_grid[i][j].energy + (type == herbivore ? 30 : 20);
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].is_iterated = true;
 
-      clean_position(i, j);
-    }
-    if (action == move)
-    {
-      int random_pos = random_position(valid_positions);
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = entity_grid[i][j].age;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = entity_grid[i][j].energy - 5;
+            clean_position(i, j);
+            break;
+        case move:
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = entity_grid[i][j].age;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = entity_grid[i][j].energy - 5;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].is_iterated = true;
 
-      clean_position(i, j);
-    }
-    if (action == reproduction)
-    {
-      int random_pos = random_position(valid_positions);
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = 0;
-      entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = MAXIMUM_ENERGY;
+            clean_position(i, j);
+            break;
+        case reproduction:
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].type = type;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].age = 0;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].energy = MAXIMUM_ENERGY;
+            entity_grid[i + directions[random_pos][0]][j + directions[random_pos][1]].is_iterated = true;
 
-      type != plant ? (entity_grid[i][j].energy = entity_grid[i][j].energy - 10) : (entity_grid[i][j].energy = entity_grid[i][j].energy);
+            type != plant ? (entity_grid[i][j].energy = entity_grid[i][j].energy - 10) : (entity_grid[i][j].energy = entity_grid[i][j].energy);
+            entity_grid[i][j].is_iterated = true;
+            break;
+        }
     }
-  }
 }
 
 bool is_death(const entity_type_t type, const int i, const int j)
 {
-  if ((entity_grid[i][j].age > (type == plant ? PLANT_MAXIMUM_AGE : (type == herbivore ? HERBIVORE_MAXIMUM_AGE : CARNIVORE_MAXIMUM_AGE))) || type != plant && entity_grid[i][j].energy <= 0)
-  {
-    clean_position(i, j);
+    if ((entity_grid[i][j].age > (type == plant ? PLANT_MAXIMUM_AGE : (type == herbivore ? HERBIVORE_MAXIMUM_AGE : CARNIVORE_MAXIMUM_AGE))) || type != plant && entity_grid[i][j].energy <= 0)
+    {
+        clean_position(i, j);
 
-    return true;
-  }
+        return true;
+    }
 
-  return false;
+    return false;
+};
+
+void clean_is_iterated()
+{
+    for (int i = 0; i < NUM_ROWS; i++)
+    {
+        for (int j = 0; j < NUM_ROWS; j++)
+        {
+            entity_grid[i][j].is_iterated = false;
+        }
+    }
 };
 
 int main()
 {
-  crow::SimpleApp app;
+    crow::SimpleApp app;
 
-  CROW_ROUTE(app, "/")
-  ([](crow::request &, crow::response &res)
-   {
+    CROW_ROUTE(app, "/")
+    ([](crow::request &, crow::response &res)
+     {
         res.set_static_file_info_unsafe("../public/index.html");
         res.end(); });
 
-  CROW_ROUTE(app, "/start-simulation")
-      .methods("POST"_method)([](crow::request &req, crow::response &res)
-                              {
+    CROW_ROUTE(app, "/start-simulation")
+        .methods("POST"_method)([](crow::request &req, crow::response &res)
+                                {
             nlohmann::json request_body = nlohmann::json::parse(req.body);
 
             uint32_t total_entinties = (uint32_t)request_body["plants"] + (uint32_t)request_body["herbivores"] + (uint32_t)request_body["carnivores"];
@@ -219,51 +241,60 @@ int main()
             res.body = json_grid.dump();
             res.end(); });
 
-  CROW_ROUTE(app, "/next-iteration")
-      .methods("GET"_method)([]()
-                             {
+    CROW_ROUTE(app, "/next-iteration")
+        .methods("GET"_method)([]()
+                               {
+            
+            clean_is_iterated();
+
             for (int i = 0; i < NUM_ROWS; i++)
             {
               for (int j = 0; j < NUM_ROWS; j++)
               {
-                if (entity_grid[i][j].type != empty && !is_death(entity_grid[i][j].type, i, j))
-                {
-                  entity_grid[i][j].age++;
+                
+                if (entity_grid[i][j].type != empty && !is_death(entity_grid[i][j].type, i, j) && !entity_grid[i][j].is_iterated)
+                { 
 
-                  switch (entity_grid[i][j].type)
-                  {
+                    entity_grid[i][j].age++;
+                    
+                    valid_position herbivores_pos = search_positions(herbivore, i, j);
+                    valid_position empty_pos = search_positions(empty, i, j);
+                    valid_position plants_pos = search_positions(plant, i, j);
+                    
+                    switch (entity_grid[i][j].type)
+                    {
                     case plant:
-                      if (random_action(PLANT_REPRODUCTION_PROBABILITY))
-                          next_positions(search_positions(empty, i, j), plant, i, j, reproduction);
-                      break;
+                        if (random_action(PLANT_REPRODUCTION_PROBABILITY) && !empty_pos.is_empty )
+                            next_positions(search_positions(empty, i, j).valid_positions, plant, i, j, reproduction);
+                        break;
                     case herbivore:
-                      if (random_action(HERBIVORE_EAT_PROBABILITY))
-                          next_positions(search_positions(plant, i, j), entity_grid[i][j].type, i, j, eat);
+                        if (random_action(HERBIVORE_EAT_PROBABILITY) && !plants_pos.is_empty)
+                            next_positions(plants_pos.valid_positions, entity_grid[i][j].type, i, j, eat);
 
-                      if (random_action(HERBIVORE_MOVE_PROBABILITY))
-                          next_positions(search_positions(empty, i, j), entity_grid[i][j].type, i, j, move);
-
-                      if (random_action(HERBIVORE_REPRODUCTION_PROBABILITY) && entity_grid[i][j].energy > THRESHOLD_ENERGY_FOR_REPRODUCTION)
-                          next_positions(search_positions(empty, i, j), entity_grid[i][j].type, i, j, reproduction);
-                      break;
+                        else if (random_action(HERBIVORE_MOVE_PROBABILITY) && !empty_pos.is_empty) 
+                            next_positions(search_positions(empty, i, j).valid_positions, entity_grid[i][j].type, i, j, move);
+                        
+                        else if (random_action(HERBIVORE_REPRODUCTION_PROBABILITY) && !empty_pos.is_empty && entity_grid[i][j].energy > THRESHOLD_ENERGY_FOR_REPRODUCTION)
+                            next_positions(search_positions(empty, i, j).valid_positions, entity_grid[i][j].type, i, j, reproduction);
+                        break;
                     case carnivore:
-                      if (random_action(CARNIVORE_EAT_PROBABILITY))
-                          next_positions(search_positions(herbivore, i, j), entity_grid[i][j].type, i, j, eat);
-
-                      if (random_action(CARNIVORE_MOVE_PROBABILITY))
-                          next_positions(search_positions(empty, i, j), entity_grid[i][j].type, i, j, move);
-
-                      if (random_action(CARNIVORE_REPRODUCTION_PROBABILITY) && entity_grid[i][j].energy < THRESHOLD_ENERGY_FOR_REPRODUCTION)
-                          next_positions(search_positions(empty, i, j), entity_grid[i][j].type, i, j, reproduction);
-                      break;
-                  }
+                        if (random_action(CARNIVORE_EAT_PROBABILITY) && !herbivores_pos.is_empty)
+                            next_positions(herbivores_pos.valid_positions, entity_grid[i][j].type, i, j, eat);
+                        
+                        else if (random_action(CARNIVORE_MOVE_PROBABILITY) && !empty_pos.is_empty)
+                            next_positions(empty_pos.valid_positions, entity_grid[i][j].type, i, j, move);
+                        
+                        else if (random_action(CARNIVORE_REPRODUCTION_PROBABILITY) && !empty_pos.is_empty && entity_grid[i][j].energy < THRESHOLD_ENERGY_FOR_REPRODUCTION)
+                            next_positions(empty_pos.valid_positions, entity_grid[i][j].type, i, j, reproduction);
+                        break;
+                    }
                 }
               }
             }
 
             nlohmann::json json_grid = entity_grid;
             return json_grid.dump(); });
-  app.port(8080).run();
+    app.port(8080).run();
 
-  return 0;
+    return 0;
 }
