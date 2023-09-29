@@ -336,3 +336,5 @@ ASALocalRun/
 #Build directory
 build/
 build/*
+
+src/main
